@@ -58,6 +58,7 @@ changed in the settings menu. The most useful ones:
 | `TaaJitter` | 0.0–1.0 | Lower = less TAA blur, more aliasing |
 | `Sharpen` | 0.0–1.0 | Sharpening of the headset image |
 | `HudDistance`, `HudWidth`, `HudOffsetY`, `HudAnchor` | metres; `World` / `Head` | HUD panel placement |
+| `ReticleInScene`, `ReticleDistance` | `1`/`0`; metres | Draws the D.U.M.A. aim crosshair in the 3D view (default 10 m) instead of on the HUD panel |
 | `MenuDistance`, `MenuWidth`, `MenuOffsetY`, `MenuAnchor` | metres; `World` / `Head` | Settings menu placement |
 | `WorldScale` | 1.0 = real scale | Larger values exaggerate head movement and depth |
 

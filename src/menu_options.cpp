@@ -132,6 +132,10 @@ void Register() {
         [] { g_config.hudAnchor = g_anchorStr == "Head" ? 1 : 0; });
     an.choiceLabels = {"World (fixed)", "Head (follows)"};
     o.AddBool("HUD", "HudOnDesktop", "HUD on the monitor", &c.hudOnDesktop, "Also draw the HUD over the image on the monitor.");
+    o.AddBool("HUD", "ReticleInScene", "Aim crosshair in 3D", &c.reticleInScene,
+        "Draw the D.U.M.A. aim crosshair in the 3D view instead of on the HUD panel, so it is not seen double.");
+    o.AddFloat("HUD", "ReticleDistance", "Crosshair distance (m)", &c.reticleDistance, 1.0f, 50.0f, 0.5f, 1,
+        "How far away the aim crosshair appears.");
     o.AddAction("HUD", "Show / hide HUD panel (F10)", [] { XrToggleHud(); });
 
     // Menu panel itself

@@ -15,6 +15,7 @@
 #include "xr_runtime.h"
 #include "hud_layer.h"
 #include "temporal.h"
+#include "reticle.h"
 #include "native_stereo.h"
 #include "rdoc.h"
 #include "camera_probe.h"
@@ -161,7 +162,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
             LOGI("  %s", ns);
             char hr[256]; HudReport(hr, sizeof(hr));
             LOGI("  %s", hr);
-            if (g_config.activeMode == Config::Native) { char th[256]; TemporalReport(th, sizeof(th)); LOGI("  %s", th); }
+            if (g_config.activeMode == Config::Native) { char th[256]; TemporalReport(th, sizeof(th)); LOGI("  %s", th); ReticleReport(th, sizeof(th)); LOGI("  %s", th); }
             g_statsStart = now; g_statsFrames = 0; g_frameMsSum = 0; g_frameMsMax = 0;
         }
     }

@@ -77,6 +77,10 @@ static const char* kDefaultConfig =
     "HudAnchor = World\n"
     "# 1 = also draw the HUD on the monitor image. F10 hides/shows the HUD panel.\n"
     "HudOnDesktop = 1\n"
+    "# 1 = draw the aim crosshair (D.U.M.A. aim) in the 3D view at ReticleDistance metres instead of on the\n"
+    "# HUD panel, so it is not seen double.\n"
+    "ReticleInScene = 1\n"
+    "ReticleDistance = 10\n"
     "\n"
     "# --- Settings menu (Insert, or hold L3+R3) ---\n"
     "# Panel distance and width in metres, and height offset from eye level.\n"
@@ -193,6 +197,8 @@ void LoadConfig(const std::wstring& gameDir) {
         }
         else if (EqNoCase(key, "HudLayer")) g_config.hudLayer = bv;
         else if (EqNoCase(key, "HudOnDesktop")) g_config.hudOnDesktop = bv;
+        else if (EqNoCase(key, "ReticleInScene")) g_config.reticleInScene = bv;
+        else if (EqNoCase(key, "ReticleDistance")) g_config.reticleDistance = fv < 0.5f ? 0.5f : (fv > 200.0f ? 200.0f : fv);
         else if (EqNoCase(key, "HudDistance")) g_config.hudDistance = fv < 0.2f ? 0.2f : (fv > 20.0f ? 20.0f : fv);
         else if (EqNoCase(key, "HudWidth")) g_config.hudWidth = fv < 0.1f ? 0.1f : (fv > 20.0f ? 20.0f : fv);
         else if (EqNoCase(key, "HudOffsetY")) g_config.hudOffsetY = fv;
@@ -211,6 +217,8 @@ void LoadConfig(const std::wstring& gameDir) {
         else if (EqNoCase(key, "StereoHistoryAll")) g_config.stereoHistoryAll = bv;
         else if (EqNoCase(key, "StereoHistoryUav")) g_config.stereoHistoryUav = bv;
         else if (EqNoCase(key, "DebugHistLog")) g_config.debugHistLog = iv;
+        else if (EqNoCase(key, "DebugDumpKey")) g_config.debugDumpKey = bv;
+        else if (EqNoCase(key, "DebugFakePad")) g_config.debugFakePad = bv;
         else if (EqNoCase(key, "StereoHistoryMax")) g_config.stereoHistoryMax = iv < 0 ? 0 : (iv > 64 ? 64 : iv);
         else if (EqNoCase(key, "Foveation")) g_config.foveation = (EqNoCase(val, "Gaze") || EqNoCase(val, "Eye") || iv == 2) ? 2 : (EqNoCase(val, "Fixed") || EqNoCase(val, "true") || EqNoCase(val, "on") || iv == 1) ? 1 : 0;
         else if (EqNoCase(key, "DebugFakeGaze")) g_config.debugFakeGaze = bv;

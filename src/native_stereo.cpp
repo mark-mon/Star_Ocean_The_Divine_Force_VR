@@ -8,6 +8,7 @@
 #include <algorithm>
 #include "native_stereo.h"
 #include "temporal.h"
+#include "reticle.h"
 #include "hud_layer.h"
 #include "render_res.h"
 #include "config.h"
@@ -671,7 +672,7 @@ bool CaptureEye(int e) {
             if (!g_eyeTex[e] || have.Width != d.Width || have.Height != d.Height || have.Format != d.Format) {
                 if (g_eyeTex[e]) { g_eyeTex[e]->Release(); g_eyeTex[e] = nullptr; }
                 D3D11_TEXTURE2D_DESC n = d;
-                n.MipLevels = 1; n.Usage = D3D11_USAGE_DEFAULT; n.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                n.MipLevels = 1; n.Usage = D3D11_USAGE_DEFAULT; n.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;   // RT: the aim crosshair is drawn in
                 n.CPUAccessFlags = 0; n.MiscFlags = 0;
                 ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
                 if (dev) { dev->CreateTexture2D(&n, nullptr, &g_eyeTex[e]); dev->Release(); }
@@ -1037,10 +1038,32 @@ void NativeEndOfFrame(uintptr_t vi) {
     if (stereo && ok && CaptureEye(1)) {
         // If the composite shows the scene rendered one frame earlier, submit that frame's head pose.
         const HeadFrame& pubHf = latDelay && s_prevHfValid ? s_prevHf : g_st.hf;
+        {
+            const float* eyeVI[2] = {g_st.eye[0], g_st.eye[1]};
+            ReticleOnStereoFrame(CtxImmediate(), HudTexture(), g_eyeTex, g_st.center, eyeVI);
+        }
         XrPublishStereo(g_eyeTex[0], g_eyeTex[1], pubHf, HudTakeFrame());
         s_stereoFrames++;
         DumpSeqFrame();
         static bool dumped = false;
+        if (g_config.debugDumpKey) {   // diagnostic: F11 writes both eyes (numbered) plus a camera line to the log
+            static bool was = false; static int n = 0;
+            bool down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+            if (down && !was) {
+                wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+                std::wstring dir = exe; dir = dir.substr(0, dir.find_last_of(L'\\'));
+                wchar_t nm[64];
+                swprintf(nm, 64, L"\\so6vr_key%02d_left.bmp", n);  DumpEyeBmp(CtxImmediate(), g_eyeTex[0], (dir + nm).c_str());
+                swprintf(nm, 64, L"\\so6vr_key%02d_right.bmp", n); DumpEyeBmp(CtxImmediate(), g_eyeTex[1], (dir + nm).c_str());
+                if (ID3D11Texture2D* h = HudTexture()) { swprintf(nm, 64, L"\\so6vr_key%02d_hud.bmp", n); DumpEyeBmp(CtxImmediate(), h, (dir + nm).c_str()); }
+                const float* c = g_st.center;
+                LOGI("F11 dump %d: centre P m00 %.4f m11 %.4f m02 %.4f m12 %.4f | eye L P m00 %.4f m02 %.4f | eye R P m00 %.4f m02 %.4f | eyeOff L %.2f R %.2f",
+                     n, c[32], c[37], c[34], c[38], g_st.eye[0][32], g_st.eye[0][34], g_st.eye[1][32], g_st.eye[1][34],
+                     g_st.hf.eyeOff[0][0], g_st.hf.eyeOff[1][0]);
+                ++n;
+            }
+            was = down;
+        }
         if (!dumped && g_config.debugDumpEyesAt > 0 && s_gameplayFrames.load() >= (unsigned long long)g_config.debugDumpEyesAt) {
             dumped = true;
             wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);

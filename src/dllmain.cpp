@@ -8,7 +8,7 @@
 #include "image_quality.h"
 #include "rdoc.h"
 
-#define SO6VR_VERSION "0.9.9"
+#define SO6VR_VERSION "0.9.10"
 
 namespace {
 

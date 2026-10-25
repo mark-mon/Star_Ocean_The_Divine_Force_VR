@@ -45,6 +45,8 @@ struct Config {
     float hudWidth = 1.5f;        // metres (height follows the HUD's aspect)
     float hudOffsetY = -0.05f;    // metres, up from eye level
     int   hudAnchor = 0;
+    bool  reticleInScene = true;  // draw the aim crosshair in the 3D image instead of on the HUD panel
+    float reticleDistance = 10.0f; // metres along the aim direction
     vrkit::menu::Placement menu;  // settings menu panel: distance, width, height offset, anchor (World/Head)
     bool  debugMenuDump = false;
     bool  mouseFix = true;
@@ -72,7 +74,9 @@ struct Config {
     bool  stereoHistoryAll = true;       // ... and of every other history texture (found automatically)
     bool  stereoHistoryUav = true;       // also detect history updated in place through UAVs
     int   stereoHistoryMax = 16;
-    int   debugHistLog = 0;              // diagnostic: list the textures pass 1 uses after this many tracked frames         // safety limit on how many textures get per-eye copies
+    int   debugHistLog = 0;
+    bool  debugDumpKey = false;
+    bool  debugFakePad = false;          // diagnostic: keyboard-driven pad 0 (F5 = RB)          // diagnostic: F11 writes both eye images              // diagnostic: list the textures pass 1 uses after this many tracked frames         // safety limit on how many textures get per-eye copies
     bool  debugLatTrack = false;
     int   replayRestoreMask = 14;    // 1 stateful passes (breaks TAA history), 2 globals, 4 small UAVs, 8 TAA depth state
     int   debugDumpEyesAt = 0;           // native stereo: write both eye images as BMP at this gameplay frame (0 = off)
