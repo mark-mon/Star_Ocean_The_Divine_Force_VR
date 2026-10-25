@@ -76,7 +76,9 @@ struct Config {
     int   stereoHistoryMax = 16;
     int   debugHistLog = 0;
     bool  debugDumpKey = false;
-    bool  debugFakePad = false;          // diagnostic: keyboard-driven pad 0 (F5 = RB)          // diagnostic: F11 writes both eye images              // diagnostic: list the textures pass 1 uses after this many tracked frames         // safety limit on how many textures get per-eye copies
+    bool  debugFakePad = false;
+    bool  debugPimaxEyes = false;
+    bool  patchScreenUV = true;          // also give screen-UV matrices (scene-sampling effects) per-eye cameras        // diagnostic: render with Pimax Dream Air eye views          // diagnostic: keyboard-driven pad 0 (F5 = RB)          // diagnostic: F11 writes both eye images              // diagnostic: list the textures pass 1 uses after this many tracked frames         // safety limit on how many textures get per-eye copies
     bool  debugLatTrack = false;
     int   replayRestoreMask = 14;    // 1 stateful passes (breaks TAA history), 2 globals, 4 small UAVs, 8 TAA depth state
     int   debugDumpEyesAt = 0;           // native stereo: write both eye images as BMP at this gameplay frame (0 = off)

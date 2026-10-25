@@ -16,5 +16,6 @@ void TemporalBeginFrame(bool stereo);        // render thread, start of a frame 
 void TemporalEndPass1();                     // end of pass 1 (left eye)
 void TemporalBeforeReplay(ID3D11DeviceContext* ctx);
 void TemporalAfterReplay(ID3D11DeviceContext* ctx, bool ok);
+void TemporalRequestDump();   // diagnostic: list the textures pass 1 touches, on the next stereo frame
 void TemporalReport(char* buf, size_t size);
 }

@@ -1141,6 +1141,19 @@ bool XrLocateEyesForGameFrame(XrView views[2]) {
     if (XR_FAILED(p_xrLocateViews(g_session, &li, &vs, 2, &n, views)) || n != 2) return false;
     const XrViewStateFlags need = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
     ApplyFakeHead(t, views, 2);
+    if (g_config.debugPimaxEyes) {
+        // Diagnostic: Pimax Dream Air eye views (72 mm IPD, off-centre per-eye FOV) on any headset.
+        const float d2r = 0.01745329f;
+        views[0].fov = {-47.8f * d2r, 42.2f * d2r, 42.5f * d2r, -42.5f * d2r};
+        views[1].fov = {-42.2f * d2r, 47.8f * d2r, 42.5f * d2r, -42.5f * d2r};
+        const XrQuaternionf q = views[0].pose.orientation;
+        float rx = 1 - 2 * (q.y * q.y + q.z * q.z), ry = 2 * (q.x * q.y + q.w * q.z), rz = 2 * (q.x * q.z - q.w * q.y);   // local +X
+        XrVector3f c{(views[0].pose.position.x + views[1].pose.position.x) * 0.5f, (views[0].pose.position.y + views[1].pose.position.y) * 0.5f,
+                     (views[0].pose.position.z + views[1].pose.position.z) * 0.5f};
+        views[1].pose.orientation = q;
+        views[0].pose.position = {c.x - rx * 0.036f, c.y - ry * 0.036f, c.z - rz * 0.036f};
+        views[1].pose.position = {c.x + rx * 0.036f, c.y + ry * 0.036f, c.z + rz * 0.036f};
+    }
     static bool loggedEyes = false;
     if (!loggedEyes) {
         loggedEyes = true;

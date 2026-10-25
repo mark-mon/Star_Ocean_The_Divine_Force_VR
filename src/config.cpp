@@ -219,6 +219,8 @@ void LoadConfig(const std::wstring& gameDir) {
         else if (EqNoCase(key, "DebugHistLog")) g_config.debugHistLog = iv;
         else if (EqNoCase(key, "DebugDumpKey")) g_config.debugDumpKey = bv;
         else if (EqNoCase(key, "DebugFakePad")) g_config.debugFakePad = bv;
+        else if (EqNoCase(key, "DebugPimaxEyes")) g_config.debugPimaxEyes = bv;
+        else if (EqNoCase(key, "PatchScreenUV")) g_config.patchScreenUV = bv;
         else if (EqNoCase(key, "StereoHistoryMax")) g_config.stereoHistoryMax = iv < 0 ? 0 : (iv > 64 ? 64 : iv);
         else if (EqNoCase(key, "Foveation")) g_config.foveation = (EqNoCase(val, "Gaze") || EqNoCase(val, "Eye") || iv == 2) ? 2 : (EqNoCase(val, "Fixed") || EqNoCase(val, "true") || EqNoCase(val, "on") || iv == 1) ? 1 : 0;
         else if (EqNoCase(key, "DebugFakeGaze")) g_config.debugFakeGaze = bv;

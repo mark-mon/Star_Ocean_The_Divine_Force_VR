@@ -29,6 +29,13 @@ void RdocInit(const std::wstring& gameDir) {
 
 void RdocOnPresent(unsigned long long gameplayFrames) {
     if (!g_api || g_captured >= g_config.renderDocCaptureCount) return;
+    if (g_config.renderDocCaptureFrame <= 0) {   // hotkey mode: F4 captures the next frame
+        static bool was = false;
+        bool down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+        if (down && !was) { g_api->TriggerCapture(); ++g_captured; LOGI("RenderDoc: capture %d triggered by F4 (gameplay frame %llu)", g_captured, gameplayFrames); }
+        was = down;
+        return;
+    }
     if (gameplayFrames >= (unsigned long long)g_config.renderDocCaptureFrame + 60ull * g_captured) {
         g_api->TriggerCapture();
         ++g_captured;

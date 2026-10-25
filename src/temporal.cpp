@@ -218,9 +218,13 @@ void TemporalBeginFrame(bool stereo) {
 }
 
 // Diagnostic (DebugHistLog = N): list every screen-sized texture pass 1 touched, once, after N tracked frames.
+static bool s_dumpRequest = false;
+void TemporalRequestDump() { s_dumpRequest = true; }
 static void DumpTouched() {
     static uint64_t tracked = 0;
-    if (!g_config.debugHistLog || ++tracked != (uint64_t)g_config.debugHistLog) return;
+    ++tracked;
+    if (!s_dumpRequest && (!g_config.debugHistLog || tracked != (uint64_t)g_config.debugHistLog)) return;
+    s_dumpRequest = false;
     LOGI("stereo history diagnostic: screen-sized textures used in pass 1 of frame %llu (render %ux%u):", (unsigned long long)g_frame, g_renderW, g_renderH);
     int n = 0;
     for (auto& kv : g_info) {

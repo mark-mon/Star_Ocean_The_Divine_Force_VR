@@ -372,6 +372,13 @@ bool g_watchPending = false, g_watchDone = false;
 // ---- camera matrix replacement during replay ----
 float g_origM[6][16], g_newM[6][16];
 float g_delta[16];   // VP_new * InvVP_orig: maps this frame's clip space to the other eye's
+float g_deltaUV[16]; // T * delta * T^-1, for screen-UV matrices (T: clip -> D3D texture space, 0.5/-0.5 scale + 0.5 offset)
+static void UpdateDeltaUV() {
+    static const float T[16]  = {0.5f, 0, 0, 0.5f,  0, -0.5f, 0, 0.5f,  0, 0, 0.5f, 0.5f,  0, 0, 0, 1};
+    static const float Ti[16] = {2, 0, 0, -1,  0, -2, 0, 1,  0, 0, 2, -1,  0, 0, 0, 1};
+    float tmp[16]; vm::Mul4(g_delta, Ti, tmp); vm::Mul4(T, tmp, g_deltaUV);
+}
+static std::atomic<unsigned long long> s_patchUV{0};
 bool  g_patching = false;
 std::atomic<uint64_t> s_patchHits{0};
 
@@ -645,6 +652,7 @@ void StereoBegin(uintptr_t vi) {
     memcpy(g_origM, g_st.center, sizeof(g_origM));
     memcpy(g_newM, g_st.eye[0], sizeof(g_newM));
     vm::Mul4(g_newM[4], g_origM[5], g_delta);
+    UpdateDeltaUV();
     g_patching = true;
     g_st.active = true;
 }
@@ -761,6 +769,29 @@ void NativePatchUpload(void* data, unsigned bytes) {
             memcpy(d + i, out, 64);
             s_patchHits++;
             i += 12;
+            continue;
+        }
+        // Screen-UV matrices (T * clip matrix: effects that sample the scene image at a projected position, e.g. the
+        // D.U.M.A. dash distortion disc). Without this they sample with the head camera's projection, which on headsets
+        // with off-centre eye views shows a shifted copy of the scene. C = T^-1 * M must pass the same test.
+        if (g_config.patchScreenUV) {
+            const float* R0 = M; const float* R2 = M + 8; const float* R3 = M + 12;
+            float y[4];
+            for (int c = 0; c < 4; ++c) {
+                float c0 = 2 * R0[c] - R3[c], c1 = R3[c] - 2 * M[4 + c], c2 = 2 * R2[c] - R3[c], c3 = R3[c];
+                y[c] = r3[0] * c0 + r3[1] * c1 + r3[2] * c2 + r3[3] * c3;
+            }
+            if (std::fabs(y[0]) < 1e-3f && std::fabs(y[1]) < 1e-3f && std::fabs(y[2]) < 1e-3f && std::fabs(y[3] - 1.0f) < 2e-3f &&
+                std::fabs(R3[3]) > 1e-3f) {
+                bool finite = true;
+                for (int k = 0; k < 16; ++k) if (!std::isfinite(M[k])) { finite = false; break; }
+                if (!finite) continue;
+                float out[16];
+                vm::Mul4(g_deltaUV, M, out);
+                memcpy(d + i, out, 64);
+                s_patchUV++;
+                i += 12;
+            }
         }
     }
     for (int i = 0; i + 16 <= nf; ++i) {
@@ -990,6 +1021,7 @@ void NativeEndOfFrame(uintptr_t vi) {
     }
     CaptureMatrices(vi, g_newM);
     vm::Mul4(g_newM[4], g_origM[5], g_delta);
+    UpdateDeltaUV();
     bool ok;
     if (stereo) TemporalBeforeReplay(CtxImmediate());   // the right eye gets its own history textures
     g_inReplay = true;
@@ -1060,6 +1092,7 @@ void NativeEndOfFrame(uintptr_t vi) {
                 LOGI("F11 dump %d: centre P m00 %.4f m11 %.4f m02 %.4f m12 %.4f | eye L P m00 %.4f m02 %.4f | eye R P m00 %.4f m02 %.4f | eyeOff L %.2f R %.2f",
                      n, c[32], c[37], c[34], c[38], g_st.eye[0][32], g_st.eye[0][34], g_st.eye[1][32], g_st.eye[1][34],
                      g_st.hf.eyeOff[0][0], g_st.hf.eyeOff[1][0]);
+                TemporalRequestDump();
                 ++n;
             }
             was = down;
@@ -1139,8 +1172,8 @@ void NativeReport(char* buf, size_t size) {
                       (unsigned long long)s_latAltBad.exchange(0), (unsigned long long)s_rtBinds.exchange(0), (unsigned long long)s_finalBinds.exchange(0));
     if (k0 < 0 || size_t(k0) >= size) return;
     buf += k0; size -= size_t(k0);
-    snprintf(buf, size, "render jobs: %u last frame, %llu replays (cpu %.2f ms each), %llu camera matrices replaced, view setup %llu (+%llu during replay)%s",
-             s_lastJobsPerFrame.load(), (unsigned long long)s_replays.exchange(0), ms, (unsigned long long)s_patchHits.exchange(0),
+    snprintf(buf, size, "render jobs: %u last frame, %llu replays (cpu %.2f ms each), %llu camera matrices replaced (+%llu screen-UV), view setup %llu (+%llu during replay)%s",
+             s_lastJobsPerFrame.load(), (unsigned long long)s_replays.exchange(0), ms, (unsigned long long)s_patchHits.exchange(0), (unsigned long long)s_patchUV.exchange(0),
              (unsigned long long)s_vsCalls.exchange(0), (unsigned long long)s_vsReplayCalls.exchange(0),
              g_replayBroken ? " [replay disabled after exception]" : "");
     g_replayMsSum = 0; g_replayMsN = 0;
