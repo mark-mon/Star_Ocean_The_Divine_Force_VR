@@ -122,6 +122,11 @@ using PFN_ClearDSV = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Depth
 struct UavSnap { ID3D11Resource* res; ID3D11Resource* backup; bool takenThisFrame; };
 std::vector<UavSnap> g_uavSnaps;
 std::atomic<ID3D11DeviceContext*> g_imm{nullptr};
+// The game's immediate context. Other immediate contexts in the process (our XR thread's device, and
+// in-process OpenXR runtimes such as Virtual Desktop's, which create their own D3D11 device) run the same
+// driver code and so hit the same detours: they must be passed straight through.
+std::atomic<ID3D11DeviceContext*> g_gameImm{nullptr};
+template <int K> inline bool IsGameImm(ID3D11DeviceContext* c) { return K == 0 && c == g_gameImm.load(std::memory_order_relaxed); }
 
 ID3D11Resource* CloneResource(ID3D11Device* dev, ID3D11Resource* r) {
     D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
@@ -199,7 +204,7 @@ struct CtxHooks {
     static inline PFN_GetData GetData_o;
     static HRESULT STDMETHODCALLTYPE GetDataF(ID3D11DeviceContext* c, ID3D11Asynchronous* a, void* d, UINT sz, UINT fl) {
         HRESULT hr = GetData_o(c, a, d, sz, fl);
-        if (K == Imm) {
+        if (IsGameImm<K>(c)) {
             int kind = -1;
             ID3D11Query* q = nullptr;
             if (a && SUCCEEDED(a->QueryInterface(__uuidof(ID3D11Query), (void**)&q)) && q) { D3D11_QUERY_DESC qd; q->GetDesc(&qd); kind = qd.Query; q->Release(); }
@@ -212,24 +217,24 @@ struct CtxHooks {
         return hr;
     }
     static void STDMETHODCALLTYPE OMSetBlend(ID3D11DeviceContext* c, ID3D11BlendState* bs, const FLOAT f[4], UINT m) {
-        if (K == Imm) bs = HudOnSetBlend(c, bs, f, m);
+        if (IsGameImm<K>(c)) bs = HudOnSetBlend(c, bs, f, m);
         OMSetBlend_o(c, bs, f, m);
     }
     static void STDMETHODCALLTYPE OMSetRTUAV(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d, UINT us, UINT un, ID3D11UnorderedAccessView* const* u, const UINT* ic) {
         Bump<K, V>(RT);
-        if (K == Imm && g_latTrack && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL) {
+        if (IsGameImm<K>(c) && g_latTrack && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL) {
             ID3D11Resource* res = nullptr;
             if (n >= 1 && r && r[0]) { r[0]->GetResource(&res); if (res) res->Release(); }
             NativeOnSetRT(res);
             NativeOnPassTarget(res, d);
         }
-        if (K == Imm && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL && g_config.foveation) VrsBind(c, n, r, d);
-        if (K == Imm && TemporalActive()) {
+        if (IsGameImm<K>(c) && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL && g_config.foveation) VrsBind(c, n, r, d);
+        if (IsGameImm<K>(c) && TemporalActive()) {
             TemporalRT(n, r, d);
             if (un != D3D11_KEEP_UNORDERED_ACCESS_VIEWS && u) for (UINT i = 0; i < un; ++i) if (u[i]) TemporalOnUavView(u[i]);
         }
         ID3D11RenderTargetView* scratch[8];
-        if (K == Imm && g_hudFrame && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL) HudOnSetRT(c, n, r, scratch);
+        if (IsGameImm<K>(c) && g_hudFrame && n != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL) HudOnSetRT(c, n, r, scratch);
         OMSetRTUAV_o(c, n, r, d, us, un, u, ic);
     }
     static inline PFN_DrawIndirect DrawIndexedInstancedIndirect_o;
@@ -241,34 +246,34 @@ struct CtxHooks {
     static inline PFN_UpdateSubresource UpdateSubresource_o;
     static inline PFN_CSSetUAVs CSSetUAVs_o;
     static void STDMETHODCALLTYPE CSSetUAVsF(ID3D11DeviceContext* c, UINT start, UINT n, ID3D11UnorderedAccessView* const* u, const UINT* counts) {
-        if (K == Imm) { g_imm.store(c); SnapshotUavs(c, n, u); }
-        if (K == Imm && TemporalActive() && u) for (UINT i = 0; i < n; ++i) if (u[i]) TemporalOnUavView(u[i]);
+        if (IsGameImm<K>(c)) { g_imm.store(c); SnapshotUavs(c, n, u); }
+        if (IsGameImm<K>(c) && TemporalActive() && u) for (UINT i = 0; i < n; ++i) if (u[i]) TemporalOnUavView(u[i]);
         CSSetUAVs_o(c, start, n, u, counts);
     }
     static inline PFN_SetSRVs PSSetSRVs_o, VSSetSRVs_o, CSSetSRVs_o;
     static void SrvReads(UINT n, ID3D11ShaderResourceView* const* v) { if (v) for (UINT i = 0; i < n; ++i) if (v[i]) TemporalOnReadView(v[i]); }
-    static void STDMETHODCALLTYPE PSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (K == Imm && TemporalActive()) SrvReads(n, v); PSSetSRVs_o(c, s0, n, v); }
-    static void STDMETHODCALLTYPE VSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (K == Imm && TemporalActive()) SrvReads(n, v); VSSetSRVs_o(c, s0, n, v); }
-    static void STDMETHODCALLTYPE CSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (K == Imm && TemporalActive()) SrvReads(n, v); CSSetSRVs_o(c, s0, n, v); }
+    static void STDMETHODCALLTYPE PSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (IsGameImm<K>(c) && TemporalActive()) SrvReads(n, v); PSSetSRVs_o(c, s0, n, v); }
+    static void STDMETHODCALLTYPE VSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (IsGameImm<K>(c) && TemporalActive()) SrvReads(n, v); VSSetSRVs_o(c, s0, n, v); }
+    static void STDMETHODCALLTYPE CSSetSRVsF(ID3D11DeviceContext* c, UINT s0, UINT n, ID3D11ShaderResourceView* const* v) { if (IsGameImm<K>(c) && TemporalActive()) SrvReads(n, v); CSSetSRVs_o(c, s0, n, v); }
     static inline PFN_CopyResource CopyResource_o;
     static inline PFN_CopySubresourceRegion CopySubresourceRegion_o;
     static void STDMETHODCALLTYPE CopyResourceF(ID3D11DeviceContext* c, ID3D11Resource* dst, ID3D11Resource* src) {
-        if (K == Imm && TemporalActive()) { TemporalOnRead(src); TemporalOnWrite(dst); }
+        if (IsGameImm<K>(c) && TemporalActive()) { TemporalOnRead(src); TemporalOnWrite(dst); }
         CopyResource_o(c, dst, src);
     }
     static void STDMETHODCALLTYPE CopySubresourceRegionF(ID3D11DeviceContext* c, ID3D11Resource* dst, UINT ds, UINT x, UINT y, UINT z, ID3D11Resource* src, UINT ss, const D3D11_BOX* b) {
-        if (K == Imm && TemporalActive()) { TemporalOnRead(src); TemporalOnWrite(dst); }
+        if (IsGameImm<K>(c) && TemporalActive()) { TemporalOnRead(src); TemporalOnWrite(dst); }
         CopySubresourceRegion_o(c, dst, ds, x, y, z, src, ss, b);
     }
     static inline PFN_ClearUAVu ClearUAVu_o;
     static inline PFN_ClearUAVf ClearUAVf_o;
     static inline PFN_ClearDSV ClearDSV_o;
-    static void STDMETHODCALLTYPE ClearUAVuF(ID3D11DeviceContext* c, ID3D11UnorderedAccessView* u, const UINT v[4]) { if (K == Imm && TemporalActive()) TemporalOnWriteView(u); ClearUAVu_o(c, u, v); }
-    static void STDMETHODCALLTYPE ClearUAVfF(ID3D11DeviceContext* c, ID3D11UnorderedAccessView* u, const FLOAT v[4]) { if (K == Imm && TemporalActive()) TemporalOnWriteView(u); ClearUAVf_o(c, u, v); }
-    static void STDMETHODCALLTYPE ClearDSVF(ID3D11DeviceContext* c, ID3D11DepthStencilView* d, UINT f, FLOAT z, UINT8 st) { if (K == Imm && TemporalActive()) TemporalOnWriteView(d); ClearDSV_o(c, d, f, z, st);
+    static void STDMETHODCALLTYPE ClearUAVuF(ID3D11DeviceContext* c, ID3D11UnorderedAccessView* u, const UINT v[4]) { if (IsGameImm<K>(c) && TemporalActive()) TemporalOnWriteView(u); ClearUAVu_o(c, u, v); }
+    static void STDMETHODCALLTYPE ClearUAVfF(ID3D11DeviceContext* c, ID3D11UnorderedAccessView* u, const FLOAT v[4]) { if (IsGameImm<K>(c) && TemporalActive()) TemporalOnWriteView(u); ClearUAVf_o(c, u, v); }
+    static void STDMETHODCALLTYPE ClearDSVF(ID3D11DeviceContext* c, ID3D11DepthStencilView* d, UINT f, FLOAT z, UINT8 st) { if (IsGameImm<K>(c) && TemporalActive()) TemporalOnWriteView(d); ClearDSV_o(c, d, f, z, st);
     }
     static void STDMETHODCALLTYPE UpdateSubresourceF(ID3D11DeviceContext* c, ID3D11Resource* r, UINT sub, const D3D11_BOX* box, const void* data, UINT rp, UINT dp) {
-        if (K == Imm && data && NativePatchActive()) {
+        if (IsGameImm<K>(c) && data && NativePatchActive()) {
             D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
             if (dim == D3D11_RESOURCE_DIMENSION_BUFFER) {
                 D3D11_BUFFER_DESC d; static_cast<ID3D11Buffer*>(r)->GetDesc(&d);
@@ -282,8 +287,8 @@ struct CtxHooks {
                 }
             }
         }
-        if (K == Imm) RecordBufferUpload(r, sub, box, data, rp, dp);
-        if (K == Imm) {
+        if (IsGameImm<K>(c)) RecordBufferUpload(r, sub, box, data, rp, dp);
+        if (IsGameImm<K>(c)) {
             InspectUpdate(r, data);
             if (data) {
                 D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
@@ -297,12 +302,12 @@ struct CtxHooks {
         UpdateSubresource_o(c, r, sub, box, data, rp, dp);
     }
 
-    static void STDMETHODCALLTYPE DrawIndexed(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Bump<K, V>(Draw); if (K == Imm && g_latWantSrv) NativeOnDraw(c); if (K == Imm && g_hudActive && HudBeforeDraw()) return; DrawIndexed_o(c, a, b, d); if (K == Imm && g_hudActive) HudAfterDraw(c); }
-    static void STDMETHODCALLTYPE DrawF(ID3D11DeviceContext* c, UINT a, UINT b) { Bump<K, V>(Draw); if (K == Imm && g_latWantSrv) NativeOnDraw(c); if (K == Imm && g_hudActive && HudBeforeDraw()) return; Draw_o(c, a, b); if (K == Imm && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawIndexed(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_latWantSrv) NativeOnDraw(c); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; DrawIndexed_o(c, a, b, d); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawF(ID3D11DeviceContext* c, UINT a, UINT b) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_latWantSrv) NativeOnDraw(c); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; Draw_o(c, a, b); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
     static HRESULT STDMETHODCALLTYPE MapF(ID3D11DeviceContext* c, ID3D11Resource* r, UINT s, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m) {
         Bump<K, V>(Map);
         HRESULT hr = Map_o(c, r, s, t, f, m);
-        if (K == Imm && SUCCEEDED(hr) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) {
+        if (IsGameImm<K>(c) && SUCCEEDED(hr) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) {
             D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
             if (dim == D3D11_RESOURCE_DIMENSION_BUFFER) { g_mapRes = r; g_mapPtr = m->pData; }
         }
@@ -310,7 +315,7 @@ struct CtxHooks {
     }
     static inline PFN_Unmap Unmap_o;
     static void STDMETHODCALLTYPE UnmapF(ID3D11DeviceContext* c, ID3D11Resource* r, UINT s) {
-        if (K == Imm && r == g_mapRes && g_mapPtr) {
+        if (IsGameImm<K>(c) && r == g_mapRes && g_mapPtr) {
             D3D11_BUFFER_DESC d; static_cast<ID3D11Buffer*>(r)->GetDesc(&d);
             if (d.BindFlags & D3D11_BIND_CONSTANT_BUFFER) {
                 if (NativePatchActive()) NativePatchUpload(g_mapPtr, d.ByteWidth);
@@ -320,16 +325,16 @@ struct CtxHooks {
         }
         Unmap_o(c, r, s);
     }
-    static void STDMETHODCALLTYPE DrawIndexedInstanced(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Bump<K, V>(Draw); if (K == Imm && g_latWantSrv) NativeOnDraw(c); if (K == Imm && g_hudActive && HudBeforeDraw()) return; DrawIndexedInstanced_o(c, a, b, d, e, f); if (K == Imm && g_hudActive) HudAfterDraw(c); }
-    static void STDMETHODCALLTYPE DrawInstanced(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Bump<K, V>(Draw); if (K == Imm && g_latWantSrv) NativeOnDraw(c); if (K == Imm && g_hudActive && HudBeforeDraw()) return; DrawInstanced_o(c, a, b, d, e); if (K == Imm && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawIndexedInstanced(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_latWantSrv) NativeOnDraw(c); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; DrawIndexedInstanced_o(c, a, b, d, e, f); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawInstanced(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_latWantSrv) NativeOnDraw(c); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; DrawInstanced_o(c, a, b, d, e); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
     static void STDMETHODCALLTYPE OMSetRenderTargets(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d) {
         Bump<K, V>(RT);
-        if (K == Imm && g_frameStartArmed.load(std::memory_order_relaxed) && g_frameStartArmed.exchange(false)) {
+        if (IsGameImm<K>(c) && g_frameStartArmed.load(std::memory_order_relaxed) && g_frameStartArmed.exchange(false)) {
             if (g_frameStartCb) g_frameStartCb();
             static int frames = 0;
             if (++frames > 600) LogStackOnce("first OMSetRenderTargets of frame", 3);
         }
-        if (K == Imm && g_config.debugStacks && n >= 1 && r && r[0] && NativeGameplayFrames() > 600) {
+        if (IsGameImm<K>(c) && g_config.debugStacks && n >= 1 && r && r[0] && NativeGameplayFrames() > 600) {
             // Diagnostic: who renders into full-res single-channel R16_FLOAT targets (the 2137 pass)?
             ID3D11Resource* res = nullptr; r[0]->GetResource(&res);
             if (res) {
@@ -341,27 +346,27 @@ struct CtxHooks {
                 res->Release();
             }
         }
-        if (K == Imm) {
+        if (IsGameImm<K>(c)) {
             static std::atomic<uint32_t> rtCount{0};
             uint32_t c = ++rtCount;
             if (c > 60000 && (c % 997) == 0) LogStackOnce("OMSetRenderTargets (sampled)", 12);
         }
-        if (K == Imm && g_latTrack) {
+        if (IsGameImm<K>(c) && g_latTrack) {
             ID3D11Resource* res = nullptr;
             if (n >= 1 && r && r[0]) { r[0]->GetResource(&res); if (res) res->Release(); }  // identity only
             NativeOnSetRT(res);
             NativeOnPassTarget(res, d);
         }
-        if (K == Imm && g_config.foveation) VrsBind(c, n, r, d);
-        if (K == Imm && TemporalActive()) TemporalRT(n, r, d);
+        if (IsGameImm<K>(c) && g_config.foveation) VrsBind(c, n, r, d);
+        if (IsGameImm<K>(c) && TemporalActive()) TemporalRT(n, r, d);
         ID3D11RenderTargetView* scratch[8];
-        if (K == Imm && g_hudFrame) HudOnSetRT(c, n, r, scratch);
+        if (IsGameImm<K>(c) && g_hudFrame) HudOnSetRT(c, n, r, scratch);
         OMSetRenderTargets_o(c, n, r, d);
     }
-    static void STDMETHODCALLTYPE DrawIndexedInstancedIndirect(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { Bump<K, V>(Draw); if (K == Imm && g_hudActive && HudBeforeDraw()) return; DrawIndexedInstancedIndirect_o(c, b, o); if (K == Imm && g_hudActive) HudAfterDraw(c); }
-    static void STDMETHODCALLTYPE DrawInstancedIndirect(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { Bump<K, V>(Draw); if (K == Imm && g_hudActive && HudBeforeDraw()) return; DrawInstancedIndirect_o(c, b, o); if (K == Imm && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawIndexedInstancedIndirect(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; DrawIndexedInstancedIndirect_o(c, b, o); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
+    static void STDMETHODCALLTYPE DrawInstancedIndirect(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { Bump<K, V>(Draw); if (IsGameImm<K>(c) && g_hudActive && HudBeforeDraw()) return; DrawInstancedIndirect_o(c, b, o); if (IsGameImm<K>(c) && g_hudActive) HudAfterDraw(c); }
     static void STDMETHODCALLTYPE DispatchF(ID3D11DeviceContext* c, UINT x, UINT y, UINT z) { Bump<K, V>(Dispatch); Dispatch_o(c, x, y, z); }
-    static void STDMETHODCALLTYPE ClearRTV(ID3D11DeviceContext* c, ID3D11RenderTargetView* r, const FLOAT col[4]) { Bump<K, V>(Clear); if (K == Imm && TemporalActive()) TemporalOnWriteView(r); ClearRTV_o(c, r, col); }
+    static void STDMETHODCALLTYPE ClearRTV(ID3D11DeviceContext* c, ID3D11RenderTargetView* r, const FLOAT col[4]) { Bump<K, V>(Clear); if (IsGameImm<K>(c) && TemporalActive()) TemporalOnWriteView(r); ClearRTV_o(c, r, col); }
     static void STDMETHODCALLTYPE ExecuteCommandList(ID3D11DeviceContext* c, ID3D11CommandList* cl, BOOL restore) { Bump<K, V>(ExecCL); ExecuteCommandList_o(c, cl, restore); }
     static HRESULT STDMETHODCALLTYPE FinishCommandList(ID3D11DeviceContext* c, BOOL restore, ID3D11CommandList** cl) { Bump<K, V>(FinishCL); return FinishCommandList_o(c, restore, cl); }
 
@@ -494,6 +499,7 @@ void CtxStatsInstall(ID3D11Device* dev) {
     }
     ID3D11DeviceContext* imm = nullptr;
     dev->GetImmediateContext(&imm);
+    g_gameImm.store(imm);   // the device keeps it alive
     CheckContext(imm, Imm, "at device creation");
     if (imm) imm->Release();
 
