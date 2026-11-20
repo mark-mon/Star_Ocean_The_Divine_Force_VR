@@ -73,6 +73,9 @@ static const char* kDefaultConfig =
     "HudDistance = 1.5\n"
     "HudWidth = 1.5\n"
     "HudOffsetY = -0.05\n"
+    "# HUD sharpness: HUD texels per headset pixel across the panel. 1.0 matches your headset (sharpest\n"
+    "# text); 0 = hand the headset the full-size game HUD image (can shimmer).\n"
+    "HudResolution = 1.0\n"
     "# World = fixed in front of you (F9 recentres it), Head = follows your head.\n"
     "HudAnchor = World\n"
     "# 1 = also draw the HUD on the monitor image. F10 hides/shows the HUD panel.\n"
@@ -201,6 +204,7 @@ void LoadConfig(const std::wstring& gameDir) {
         else if (EqNoCase(key, "ReticleDistance")) g_config.reticleDistance = fv < 0.5f ? 0.5f : (fv > 200.0f ? 200.0f : fv);
         else if (EqNoCase(key, "HudDistance")) g_config.hudDistance = fv < 0.2f ? 0.2f : (fv > 20.0f ? 20.0f : fv);
         else if (EqNoCase(key, "HudWidth")) g_config.hudWidth = fv < 0.1f ? 0.1f : (fv > 20.0f ? 20.0f : fv);
+        else if (EqNoCase(key, "HudResolution")) g_config.hudResolution = fv <= 0.0f ? 0.0f : (fv < 0.5f ? 0.5f : (fv > 2.0f ? 2.0f : fv));
         else if (EqNoCase(key, "HudOffsetY")) g_config.hudOffsetY = fv;
         else if (EqNoCase(key, "MenuDistance")) g_config.menu.distance = fv < 0.3f ? 0.3f : (fv > 5.0f ? 5.0f : fv);
         else if (EqNoCase(key, "HudAlphaFix")) g_config.hudAlphaFix = bv;

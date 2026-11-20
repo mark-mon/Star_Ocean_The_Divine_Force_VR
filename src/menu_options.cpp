@@ -125,6 +125,8 @@ void Register() {
         "Show the game's HUD on a flat panel instead of inside the 3D image.\nApplies from the next frame.");
     o.AddFloat("HUD", "HudDistance", "Distance (m)", &c.hudDistance, 0.3f, 10.0f, 0.05f, 2, "How far away the HUD panel is.");
     o.AddFloat("HUD", "HudWidth", "Width (m)", &c.hudWidth, 0.2f, 10.0f, 0.05f, 2, "Width of the HUD panel; its height follows the HUD's shape.");
+    o.AddFloat("HUD", "HudResolution", "Resolution", &c.hudResolution, 0.0f, 2.0f, 0.1f, 1,
+        "HUD texels per headset pixel. 1.0 matches your headset (sharpest text). 0 = use the full-size game image.");
     o.AddFloat("HUD", "HudOffsetY", "Height offset (m)", &c.hudOffsetY, -2.0f, 2.0f, 0.02f, 2, "Up (+) or down (-) from eye level.");
     g_anchorStr = c.hudAnchor == 1 ? "Head" : "World";
     auto& an = o.AddChoice("HUD", "HudAnchor", "Anchor", &g_anchorStr, {"World", "Head"},

@@ -42,6 +42,7 @@
 #include "game_offsets.h"
 #include "safe_mem.h"
 #include "reproject.h"
+#include "hud_scale.h"
 
 namespace so6vr {
 namespace {
@@ -92,6 +93,12 @@ DXGI_FORMAT g_scFormat = DXGI_FORMAT_UNKNOWN;     // source (game) format the sw
 DXGI_FORMAT g_scSwapFormat = DXGI_FORMAT_UNKNOWN; // actual swapchain format
 bool        g_warnedFormat = false;
 Reprojector g_reproj;
+HudScaler g_hudScaler;
+// Headset pixel density for HUD sizing: recommended per-eye width and the eye's horizontal tangent span.
+std::atomic<uint32_t> g_recW{0};
+std::atomic<float> g_eyeTanSpanX{0.0f};
+DXGI_FORMAT g_hudScSwapFormat = DXGI_FORMAT_UNKNOWN;
+bool g_hudScaleFailed = false;
 
 // ---- frame hand-off between the render thread and the XR thread ----
 constexpr int kSlots = 3;
@@ -277,7 +284,8 @@ int TryGetSystem() {
     if (XR_SUCCEEDED(p_xrEnumerateViewConfigurationViews(g_instance, g_system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &nv, nullptr)) && nv >= 1) {
         std::vector<XrViewConfigurationView> v(nv, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
         if (XR_SUCCEEDED(p_xrEnumerateViewConfigurationViews(g_instance, g_system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, nv, &nv, v.data())))
-            RenderResSetHmdRecommended(v[0].recommendedImageRectWidth, v[0].recommendedImageRectHeight);
+            { RenderResSetHmdRecommended(v[0].recommendedImageRectWidth, v[0].recommendedImageRectHeight);
+              g_recW = v[0].recommendedImageRectWidth; }
     }
     return 1;
 }
@@ -321,6 +329,7 @@ bool CreateXrDevice(const LUID& luidIn, D3D_FEATURE_LEVEL minLevel) {
     g_xrDevice->QueryInterface(__uuidof(ID3D11Device1), (void**)&g_xrDevice1);
     LOGI("XR thread D3D11 device created (feature level %x)", got);
     g_reproj.Init(g_xrDevice);
+    g_hudScaler.Init(g_xrDevice);
     return g_xrDevice1 != nullptr;
 }
 
@@ -483,16 +492,37 @@ bool CreateHudSwapchain(UINT w, UINT h, DXGI_FORMAT srcFormat) {
     XR_CHECK(p_xrEnumerateSwapchainImages(g_hudSwapchain, 0, &n, nullptr));
     g_hudImages.assign(n, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
     XR_CHECK(p_xrEnumerateSwapchainImages(g_hudSwapchain, n, &n, (XrSwapchainImageBaseHeader*)g_hudImages.data()));
-    g_hudScW = w; g_hudScH = h; g_hudScFormat = srcFormat;
-    LOGI("XR HUD swapchain %ux%u format %d (%u images)", w, h, fmt, n);
+    g_hudScW = w; g_hudScH = h; g_hudScFormat = srcFormat; g_hudScSwapFormat = fmt;
+    g_hudScaler.ReleaseViews();
+    LOGI("XR HUD swapchain %ux%u format %d (%u images) for a %ux%u HUD", w, h, fmt, n, g_xh.width, g_xh.height);
     return true;
 }
 
 // XR thread: copy the slot's HUD into the HUD swapchain (new frames only).
 bool UpdateHudImage(int slot) {
     if (!SyncXrHud()) return false;
-    if (!g_hudSwapchain || g_hudScW != g_xh.width || g_hudScH != g_xh.height || g_hudScFormat != g_xh.format)
-        if (!CreateHudSwapchain(g_xh.width, g_xh.height, g_xh.format)) return false;
+    // Size the HUD texture to the headset's pixel density across the panel (HudResolution x one texel per
+    // display pixel at the centre of view), never above the game's HUD image. Copying the full-size image
+    // instead gives the compositor up to twice the texels it can show, which aliases thin text.
+    UINT tw = g_xh.width, th = g_xh.height;
+    if (g_config.hudResolution > 0.0f && g_hudScaler.Ready() && !g_hudScaleFailed && g_recW.load() && g_eyeTanSpanX.load() > 0.1f &&
+        g_config.hudDistance > 0.0f) {
+        float pxPerTan = float(g_recW.load()) / g_eyeTanSpanX.load();
+        float want = pxPerTan * g_config.hudWidth / g_config.hudDistance * g_config.hudResolution;
+        if (want < float(g_xh.width)) {
+            UINT w = (UINT)want;
+            if (w < 256) w = 256;
+            w = (w + 7) & ~7u;
+            if (w < g_xh.width) { tw = w; th = (UINT)(float(g_xh.height) * float(w) / float(g_xh.width) + 0.5f); }
+        }
+    }
+    // Keep the current size for small changes (e.g. while a menu slider moves) to avoid swapchain churn.
+    bool sizeOk = g_hudSwapchain && g_hudScFormat == g_xh.format &&
+                  std::abs(int(g_hudScW) - int(tw)) <= int(tw / 16) && std::abs(int(g_hudScH) - int(th)) <= int(th / 16) &&
+                  g_hudScW <= g_xh.width && g_hudScH <= g_xh.height;
+    if (!sizeOk)
+        if (!CreateHudSwapchain(tw, th, g_xh.format)) return false;
+    const bool scaled = g_hudScW != g_xh.width || g_hudScH != g_xh.height;
     uint32_t idx = 0;
     XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
@@ -501,7 +531,12 @@ bool UpdateHudImage(int slot) {
     bool ok = false;
     if (XR_SUCCEEDED(p_xrWaitSwapchainImage(g_hudSwapchain, &wi))) {
         if (g_xh.mutex[slot] && g_xh.mutex[slot]->AcquireSync(0, 20) == S_OK) {
-            g_xrContext->CopyResource(g_hudImages[idx].texture, g_xh.tex[slot]);
+            bool srgbDst = g_hudScSwapFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || g_hudScSwapFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+            if (!scaled || !g_hudScaler.Draw(g_xrContext, g_xh.tex[slot], g_hudImages[idx].texture, g_hudScSwapFormat,
+                                             g_hudScW, g_hudScH, srgbDst)) {
+                if (!scaled) g_xrContext->CopyResource(g_hudImages[idx].texture, g_xh.tex[slot]);
+                else { g_hudScaleFailed = true; LOGW("HUD scaling failed; using the full-size HUD image"); }
+            }
             g_xh.mutex[slot]->ReleaseSync(0);
             ok = true;
         }
@@ -1154,6 +1189,7 @@ bool XrLocateEyesForGameFrame(XrView views[2]) {
         views[0].pose.position = {c.x - rx * 0.036f, c.y - ry * 0.036f, c.z - rz * 0.036f};
         views[1].pose.position = {c.x + rx * 0.036f, c.y + ry * 0.036f, c.z + rz * 0.036f};
     }
+    g_eyeTanSpanX = std::tan(views[0].fov.angleRight) - std::tan(views[0].fov.angleLeft);
     static bool loggedEyes = false;
     if (!loggedEyes) {
         loggedEyes = true;

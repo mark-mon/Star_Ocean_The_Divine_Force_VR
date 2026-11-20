@@ -43,6 +43,7 @@ struct Config {
     bool  hudOnDesktop = true;    // draw the HUD back over the game image on the monitor
     float hudDistance = 1.5f;     // metres
     float hudWidth = 1.5f;        // metres (height follows the HUD's aspect)
+    float hudResolution = 1.0f;   // HUD texels per headset pixel across the panel; 0 = full-size game HUD image
     float hudOffsetY = -0.05f;    // metres, up from eye level
     int   hudAnchor = 0;
     bool  reticleInScene = true;  // draw the aim crosshair in the 3D image instead of on the HUD panel
