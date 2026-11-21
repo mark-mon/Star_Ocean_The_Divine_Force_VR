@@ -1,7 +1,7 @@
 # Star Ocean The Divine Force VR
 
 A native VR mod for **Star Ocean The Divine Force** (Steam, PC). You play in third person with a gamepad as
-usual; the game is rendered in true per-eye stereo on your SteamVR headset through OpenXR.
+usual; the game is rendered in true per-eye stereo on your PC VR headset through OpenXR.
 
 ## Features
 
@@ -17,7 +17,7 @@ usual; the game is rendered in true per-eye stereo on your SteamVR headset throu
 ## Requirements
 
 - Windows 10/11 and the **Steam** version of the game. The mod checks the game build and does nothing on an unknown one.
-- A SteamVR headset, with SteamVR set as the OpenXR runtime.
+- A PC VR headset and an OpenXR runtime: SteamVR, or Virtual Desktop's VDXR on Quest.
 - A gamepad.
 - **A strong PC.** Native stereo renders the scene twice per frame, so expect a high CPU and GPU load. Foveated rendering needs an NVIDIA RTX GPU.
 
@@ -25,7 +25,7 @@ usual; the game is rendered in true per-eye stereo on your SteamVR headset throu
 
 1. Download the zip from [Releases](../../releases).
 2. Copy `xinput9_1_0.dll` and `openxr_loader.dll` into the game folder, next to `SO6.exe`. For example: `...\steamapps\common\STAR OCEAN THE DIVINE FORCE\`.
-3. Start SteamVR, then start the game from Steam.
+3. Start your OpenXR runtime (SteamVR, or Virtual Desktop with VDXR), then start the game from Steam.
 
 On first start the mod creates `config.txt` and `so6vr.log` in the game folder.
 
@@ -64,8 +64,9 @@ changed in the settings menu. The most useful ones:
 
 ## Troubleshooting
 
-- **Nothing in the headset:** check that SteamVR is running and is the active OpenXR runtime. Then look in `so6vr.log`.
+- **Nothing in the headset:** check that your runtime (SteamVR or Virtual Desktop) is running and is the active OpenXR runtime. Then look in `so6vr.log`.
 - **Low frame rate:** lower `RenderScale` (for example 0.8), or turn on `Foveation = Fixed`.
+- **Blurry HUD or menus:** set `Foveation = Off` (the default) or lower `FoveationStrength`.
 - **Image too soft:** try `TaaJitter = 0.5`, `Sharpen = 0.3`, or `TAA = false`.
 - **Reporting a problem:** please attach `so6vr.log`, and for crashes the game's `SO6.crash.*` files.
 
