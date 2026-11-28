@@ -122,3 +122,9 @@ Licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/
 
 ## RenderDoc in-application API header
 Source: https://github.com/baldurk/renderdoc (`third_party/renderdoc/renderdoc_app.h`, MIT License; see the header for the full text).
+
+## Barlow Semi Condensed (fonts)
+
+The settings menu embeds Barlow Semi Condensed Medium and SemiBold (`assets/fonts/`).
+Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow).
+Licensed under the SIL Open Font License, Version 1.1; the full licence text is in `assets/fonts/OFL-Barlow.txt`.

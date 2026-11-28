@@ -185,3 +185,10 @@ Build (clang-cl, as in this repo's `build.sh`): add `-Ivrkit -Ivrkit/third_party
   host; vrkit would need a "hover row" input.
 * There is no text entry and no key-binding editor. Keys stay config-file only.
 * A single global menu (one `Options` singleton, one ImGui context).
+
+## Theme
+
+`Settings::theme` sets the menu's look. The default is the plain flat panel. With `theme.tech = true` the menu is
+drawn as a chamfered panel with gradient fills, arrow-shaped tab and row plates and key-cap prompts, in the
+theme's colours (IM_COL32 order). `theme.font` / `theme.fontBold` take TrueType data embedded in the host (not
+copied or freed; it must stay valid).

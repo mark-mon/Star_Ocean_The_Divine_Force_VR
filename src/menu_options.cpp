@@ -13,6 +13,7 @@
 #include <string>
 #include <cstdio>
 
+#include "menu_theme.h"
 #define SO6VR_MENU_TITLE "Star Ocean: The Divine Force VR"
 
 namespace so6vr {
@@ -160,6 +161,7 @@ void MenuOnPresent(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
         s.title = SO6VR_MENU_TITLE;
         s.configPath = g_cfgPath;
         s.statusLine = &Status;
+        s.theme = GameMenuTheme();
         if (!vrkit::menu::Init(dev, ctx, s)) { g_failed = true; LOGE("settings menu: init failed"); return; }
         QueryPerformanceFrequency(&g_qpf); QueryPerformanceCounter(&g_last);
         LOGI("settings menu ready (hold L3+R3 or press Insert)");
